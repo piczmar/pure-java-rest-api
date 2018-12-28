@@ -21,7 +21,47 @@ I started from empty `Application` main class. You can get an initial branch lik
 git checkout step-1
 ```
 
+## First endpoint
 
+The starting point of the web application is `com.sun.net.httpserver.HttpServer` class. 
+The most simple `/api/hello` endpoint could look as below: 
+
+```java
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+
+import com.sun.net.httpserver.HttpServer;
+
+class Application {
+
+    public static void main(String[] args) throws IOException {
+        int serverPort = 8000;
+        HttpServer server = HttpServer.create(new InetSocketAddress(serverPort), 0);
+        server.createContext("/api/hello", (exchange -> {
+            String respText = "Hello!";
+            exchange.sendResponseHeaders(200, respText.getBytes().length);
+            OutputStream output = exchange.getResponseBody();
+            output.write(respText.getBytes());
+            output.flush();
+            exchange.close();
+        }));
+        server.setExecutor(null); // creates a default executor
+        server.start();
+    }
+}
+```
+When you run main program it will start web server at port `8000` and expose out first endpoint which is just printing `Hello!`, e.g. using curl:
+
+```bash
+curl localhost:8000/api/hello
+```
+
+Try it out yourself from branch:
+
+```bash
+git checkout part-2
+```
 
 
 
