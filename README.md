@@ -113,3 +113,52 @@ Try this part from branch:
 ```bash
 git checkout step-3
 ```
+
+## Parsing request params
+Parsing request params is another "feature" which we'll need to implement ourselves in contrary to utilising a framework.
+Let's say we would like our hello api to respond with a name passed as a param, e.g.: 
+
+```bash
+curl localhost:8000/api/hello?name=Marcin
+
+Hello Marcin!
+
+```
+We could parse params with a method like: 
+
+```java
+public static Map<String, List<String>> splitQuery(String query) {
+        if (query == null || "".equals(query)) {
+            return Collections.emptyMap();
+        }
+
+        return Pattern.compile("&").splitAsStream(query)
+            .map(s -> Arrays.copyOf(s.split("="), 2))
+            .collect(groupingBy(s -> decode(s[0]), mapping(s -> decode(s[1]), toList())));
+
+    }
+```
+
+and use it as below: 
+
+```java
+ Map<String, List<String>> params = splitQuery(exchange.getRequestURI().getRawQuery());
+String noNameText = "Anonymous";
+String name = params.getOrDefault("name", List.of(noNameText)).stream().findFirst().orElse(noNameText);
+String respText = String.format("Hello %s!", name);
+           
+```
+
+You can find complete example in branch:
+
+```bash
+git checkout step-4
+```
+
+Similarly if we wanted to use path params, e.g.: 
+
+```bash
+curl localhost:8000/api/items/1
+```
+to get item by id=1, we would need to parse the path ourselves to extract an id from it. This is getting cumbersome.
+
