@@ -162,3 +162,42 @@ curl localhost:8000/api/items/1
 ```
 to get item by id=1, we would need to parse the path ourselves to extract an id from it. This is getting cumbersome.
 
+
+## Secure endpoint
+A common case in each REST API is to protect some endpoints with credentials, e.g. using basic authentication.
+For each server context we can set an authenticator as below: 
+
+```java
+HttpContext context =server.createContext("/api/hello", (exchange -> {
+  // this part remains unchanged
+}));
+context.setAuthenticator(new BasicAuthenticator("myrealm") {
+    @Override
+    public boolean checkCredentials(String user, String pwd) {
+        return user.equals("admin") && pwd.equals("admin");
+    }
+});
+```
+
+The "myrealm" in `BasicAuthenticator` is a realm name. Realm is a virtual name which can be used to separate different authentication spaces. 
+You can read more about it in [RFC 1945](https://tools.ietf.org/html/rfc1945#section-11)
+
+You can now invoke this protected endpoint by adding an `Authorization` header like that: 
+
+```bash
+curl -v localhost:8000/api/hello?name=Marcin -H 'Authorization: Basic YWRtaW46YWRtaW4='
+```
+
+The text after `Basic` is a Base64 encoded `admin:admin`  which are credentials hardcoded in our example code.
+In real application to authenticate user you would probably get it from the header and compare with username and password store in database.
+If you skip the header the API will respond with status
+```
+HTTP/1.1 401 Unauthorized
+
+```
+
+Check out the complete code from branch:
+
+```bash
+git checkout step-5
+```
