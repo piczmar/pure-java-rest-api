@@ -5,12 +5,18 @@ This is a demo application developed in Java 11 using
 and a few additional Java libraries (like [vavr](http://www.vavr.io/), [lombok](https://projectlombok.org/)).
 
 ## Genesis of this project
-I am a day-to-day Spring developer and I got used to this framework so much that I thought how it would be to forget about it for a while
-and try to build such application from scratch. I thought it could be interesting from learning perspective and a bit refreshing.
-When I started building this I often came across many situations when I missed some features which Spring provides out of the box.
-This time, instead of turning on another Spring capability I had to rethink it and develop it myself.
+I am a day-to-day Spring developer and I got used to this framework so much that I imagined how it would be to forget about it for a while
+and try to build completely pure Java application from scratch. 
+
+I thought it could be interesting from learning perspective and a bit refreshing.
+
+When I started building this I often came across situations when I missed some features which Spring provides out of the box.
+
+At that times, instead of switching on another Spring capability, I had to rethink it and develop it myself.
+
 It occurred that for real business case I would probably still prefer to use Spring instead of reinventing a wheel.
-Still I believe the exercise was pretty interesting experience.
+
+Still, I believe the exercise was pretty interesting experience.
 
 ## Beginning.
 I will go through this exercise step by step but not always pasting a complete code in text
@@ -201,3 +207,176 @@ Check out the complete code from branch:
 ```bash
 git checkout step-5
 ```
+
+## JSON, exception handlers and others
+
+Now it's time for more complex example. 
+
+From my past experience in software development the most common API I was developing was exchanging JSON.
+
+We're going to develop an API to register new users. We will use an in-memory database to store them.
+
+Our user domain object will be simple: 
+
+```java
+@Value
+@Builder
+public class User {
+
+    String id;
+    String login;
+    String password;
+}
+
+```
+I'm using Lombok annotations to save me from constructor and getters boilerplate code, it will be generated in build time.
+
+In REST API I want to pass only login and password so I created a separate domain object: 
+
+```java
+@Value
+@Builder
+public class NewUser {
+
+    String login;
+    String password;
+}
+
+```
+
+Users will be created in a service which I will use in my API handler. The service method is simply storing the user. 
+In complete application it could do more, like send events after successful user registration.
+
+```java
+public String create(NewUser user) {
+    return userRepository.create(user);
+}
+```
+
+Out in-memory implementation of repository is as follows: 
+```java
+
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+import com.consulner.domain.user.NewUser;
+import com.consulner.domain.user.User;
+import com.consulner.domain.user.UserRepository;
+
+public class InMemoryUserRepository implements UserRepository {
+
+    private static final Map USERS_STORE = new ConcurrentHashMap();
+
+    @Override
+    public String create(NewUser newUser) {
+        String id = UUID.randomUUID().toString();
+        User user = User.builder()
+            .id(id)
+            .login(newUser.getLogin())
+            .password(newUser.getPassword())
+            .build();
+        USERS_STORE.put(newUser.getLogin(), user);
+
+        return id;
+    }
+}
+```
+Finally, let's glue all together in handler:
+
+```java
+protected void handle(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            throw new UnsupportedOperationException();
+        }
+
+        RegistrationRequest registerRequest = readRequest(exchange.getRequestBody(), RegistrationRequest.class);
+
+        NewUser user = NewUser.builder()
+            .login(registerRequest.getLogin())
+            .password(PasswordEncoder.encode(registerRequest.getPassword()))
+            .build();
+
+        String userId = userService.create(user);
+
+        exchange.getResponseHeaders().set(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON);
+        exchange.sendResponseHeaders(StatusCode.CREATED.getCode(), 0);
+
+        byte[] response = writeResponse(new RegistrationResponse(userId));
+
+        OutputStream responseBody = exchange.getResponseBody();
+        responseBody.write(response);
+        responseBody.close();
+    }
+```
+
+It translates JSON request into `RegistrationRequest` object: 
+
+```java
+@Value
+class RegistrationRequest {
+
+    String login;
+    String password;
+}
+```
+
+which I later map to domain object `NewUser` to finally save it in database and write response as JSON.
+
+I need to translate `RegistrationResponse` object back to JSON string.
+
+Marshaling and unmarshalling JSON is done with Jackson object mapper (`com.fasterxml.jackson.databind.ObjectMapper`).
+
+And this is how I instantiate the new handler in application main method: 
+
+```java
+ public static void main(String[] args) throws IOException {
+        int serverPort = 8000;
+        HttpServer server = HttpServer.create(new InetSocketAddress(serverPort), 0);
+
+        RegistrationHandler registrationHandler = new RegistrationHandler(getUserService(), getObjectMapper(),
+            getErrorHandler());
+        server.createContext("/api/users/register", registrationHandler::handle);
+        
+        // here follows the rest.. 
+
+ }
+```
+
+You can find the working example in separate git branch, where I also added a global exception handler which is used
+by the API to respond with a standard JSON error message in case, e.g. when HTTP method is not supported or API request is malformed.
+
+```java
+git checkout step-6
+```
+
+You can run the application and try one of the example requests below: 
+
+```bash
+curl -X POST localhost:8000/api/users/register -d '{"login": "test" , "password" : "test"}'
+```
+
+response: 
+```bash
+{"id":"395eab24-1fdd-41ae-b47e-302591e6127e"}
+```
+
+```bash
+curl -v -X POST localhost:8000/api/users/register -d '{"wrong": "request"}'
+```
+
+response: 
+```bash
+< HTTP/1.1 400 Bad Request
+< Date: Sat, 29 Dec 2018 00:11:21 GMT
+< Transfer-encoding: chunked
+< Content-type: application/json
+< 
+* Connection #0 to host localhost left intact
+{"code":400,"message":"Unrecognized field \"wrong\" (class com.consulner.app.api.user.RegistrationRequest), not marked as ignorable (2 known properties: \"login\", \"password\"])\n at [Source: (sun.net.httpserver.FixedLengthInputStream); line: 1, column: 21] (through reference chain: com.consulner.app.api.user.RegistrationRequest[\"wrong\"])"}
+```
+
+Also, by chance I encountered a project [java-express](https://github.com/Simonwep/java-express) 
+which is a Java counterpart of Node.js [Express](https://expressjs.com/) framework 
+and is using jdk.httpserver as well, so all the concepts covered in this article you can find in real-life application framework :) 
+which is also small enough to digest the codes quickly.
